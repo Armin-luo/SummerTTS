@@ -1,15 +1,27 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(tts_test)
+project(SummerTTS VERSION 1.0.0 LANGUAGES CXX C)
 
-#set(CMAKE_CXX_FLAGS " -O3 -w -std=c++11 ")
-#set(CMAKE_C_FLAGS " -O3 -w -std=c++11 ")
+# 设置C++标准
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS " -O3 -fopenmp -std=c++11 ")
-set(CMAKE_C_FLAGS " -O3 -fopenmp -std=c++11 ")
+# 编译选项
+set(CMAKE_CXX_FLAGS_RELEASE " -O3 -fopenmp -DNDEBUG ")
+set(CMAKE_C_FLAGS_RELEASE " -O3 -fopenmp -DNDEBUG ")
+set(CMAKE_CXX_FLAGS_DEBUG " -g -fopenmp ")
+set(CMAKE_C_FLAGS_DEBUG " -g -fopenmp ")
 
-add_executable(tts_test
-               ./test/main.cpp
+# 如果没有指定构建类型，默认为Release
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# 查找OpenMP
+find_package(OpenMP REQUIRED)
+
+# 创建源文件列表（排除test/main.cpp）
+set(SUMMERTTS_SOURCES
                ./src/tn/glog/src/demangle.cc
                ./src/tn/glog/src/logging.cc
                ./src/tn/glog/src/raw_logging.cc
@@ -81,7 +93,89 @@ add_executable(tts_test
                ./src/models/Generator_MBB.cpp
                ./src/models/SynthesizerTrn.cpp)
 
-target_include_directories(tts_test PUBLIC ./eigen-3.4.0
-                                            ./src/tn/header
-                                              ./include
-                                              ./src/header)
+# 创建动态库
+add_library(SummerTTS SHARED ${SUMMERTTS_SOURCES})
+
+# 设置库的版本信息
+set_target_properties(SummerTTS PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 1
+    PUBLIC_HEADER "include/SynthesizerTrn.h;include/tts_file_io.h;include/tts_logger.h;include/utils.h"
+)
+
+# 包含目录
+target_include_directories(SummerTTS 
+    PUBLIC 
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/eigen-3.4.0
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/tn/header
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/header
+)
+
+# 链接OpenMP
+target_link_libraries(SummerTTS PRIVATE OpenMP::OpenMP_CXX)
+
+# 为库设置导出宏（可选）
+target_compile_definitions(SummerTTS PRIVATE SUMMERTTS_EXPORTS)
+target_compile_definitions(SummerTTS PUBLIC 
+    $<$<NOT:$<BOOL:${BUILD_SHARED_LIBS}>>:SUMMERTTS_STATIC_DEFINE>
+)
+
+# 安装规则
+install(TARGETS SummerTTS
+    EXPORT SummerTTSTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+    PUBLIC_HEADER DESTINATION include
+)
+
+# 安装cmake配置文件
+install(EXPORT SummerTTSTargets
+    FILE SummerTTSTargets.cmake
+    NAMESPACE SummerTTS::
+    DESTINATION lib/cmake/SummerTTS
+)
+
+# 生成配置文件
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/SummerTTSConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/SummerTTSConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/SummerTTSConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/SummerTTS
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/SummerTTSConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/SummerTTSConfigVersion.cmake"
+    DESTINATION lib/cmake/SummerTTS
+)
+
+# 可选：构建测试程序
+option(BUILD_TESTS "Build test programs" ON)
+if(BUILD_TESTS)
+    add_executable(tts_test ./test/main.cpp)
+    target_link_libraries(tts_test PRIVATE SummerTTS)
+    target_include_directories(tts_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/header)
+    
+    # 如果需要，可以安装测试程序
+    # install(TARGETS tts_test DESTINATION bin)
+endif()
+
+# 可选：生成pkg-config文件
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/SummerTTS.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/SummerTTS.pc"
+    @ONLY
+)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SummerTTS.pc"
+    DESTINATION lib/pkgconfig
+)
